@@ -10,7 +10,7 @@ char debug_string_buffer[50];
   
 const bool DEBUG = false;
 
-int faseActual = 3;
+int faseActual = 1;
 const int esperarEnFinDeFase = false;
 const int ejecutarPreparacionFaseTres = true;
 
@@ -49,6 +49,8 @@ const int velocidadMaximaGiro = 255;
 const int DISTANCIA_FRENADO_FRONTAL = 15;
 const int VALOR_BLANCO = 700; // el negro > 820, el blanco < 450
 const int DISTANCIA_OBSTACULO = 35;
+
+bool usarGiroFijoEnAvanzarCuarto;
 
 const int SEGUIR_DERECHO = 0;
 const int CORREGIR_HACIA_IZQUIERDA = 1;
@@ -305,6 +307,8 @@ void girarIzquierdaFijo() {
     motorIzq(velocidadMaximaGiro, ATRAS);
     motorDer(velocidadMaximaGiro, ATRAS);
   }
+  frenar();
+  delay(1000);
 
   sensoresPiso = leerSensoresLinea();
 //  while(sensoresPiso) {
@@ -319,6 +323,35 @@ void girarIzquierdaFijo() {
     motorIzq(velocidadMaximaGiro/2, ATRAS);
     motorDer(velocidadMaximaGiro/2, ADELANTE);
   }
+  frenar();
+  delay(1000);
+}
+
+void girarIzquierdaEspecial() {
+  // gira a la izquierda aprox 90 grados,
+  // hasta volver a encontrar la pista por delante
+  
+  motorIzq(velocidadMaximaGiro, ATRAS);
+  motorDer(velocidadMaximaGiro, ATRAS);
+  delay(5);
+  frenar();
+  delay(1000);
+  
+  while(!leerSensorGiro()) {
+    motorIzq(velocidadMaximaGiro, ATRAS);
+    motorDer(0, ATRAS);
+  }
+
+  frenar();
+  delay(1000);
+  sensoresPiso = leerSensoresLinea();
+  while(!sensoresPiso) {
+    sensoresPiso = leerSensoresLinea();
+    motorIzq(velocidadMaximaGiro / 2, ATRAS);
+    motorDer(0, ADELANTE);
+  }
+  
+  
   frenar();
   delay(1000);
 }
@@ -411,6 +444,7 @@ void encontrarCuarto() {
       frenar();
       delay(1000);
 
+      /*
       digitalWrite(led, HIGH);
       int diferencia = ultimoTiempoSensorIzq - ultimoTiempoSensorDer;
       long int tiempoProporcional = abs(diferencia) * 20000;
@@ -424,6 +458,7 @@ void encontrarCuarto() {
       delay(tiempoProporcional);
       frenar();
       digitalWrite(led, LOW);
+      */
       
       /*
       while(leerSensoresLinea() != BBB){ 
@@ -532,12 +567,15 @@ void loop() {
     // INICIO FASE CUATRO
     // (descargar pelotas en cuartos)
     resolverCuarto();
+    usarGiroFijoEnAvanzarCuarto = true;
     avanzarCuarto();
   
     resolverCuarto();
+    usarGiroFijoEnAvanzarCuarto = true;
     avanzarCuarto();    
     
     resolverCuarto();
+    usarGiroFijoEnAvanzarCuarto = true;
     avanzarCuarto();
 
     // FIN FASE CUATRO
@@ -552,7 +590,7 @@ void loop() {
   
 }
 
-void resolverCuarto (){
+void resolverCuarto () {
   if (buscarObstaculo() == true){
     orientarse();
     emitirRuido();
@@ -565,6 +603,17 @@ void resolverCuarto (){
 }
 
 void avanzarCuarto() {
+  // (el robot está en la puerta del cuarto, o quizás un poco adentro,
+  // o quizás un poco afuera)
+  // (después del giro de 180 grados)
+
+  // sigue la línea un poco para terminar de salir del cuarto
+  tiempo = millis();
+  while(millis() - tiempo < 1000) {
+    seguirLinea();
+  }
+
+  /*
   // avanzar hasta que el sensor de giro esté en la puerta
   while(1) {
     seguirLinea();
@@ -580,24 +629,33 @@ void avanzarCuarto() {
     if (!valorSensor){
       break;
     }
-  }
+  }*/
+  
   // seguir línea hasta salir de la T (donde no hay pista),
   // ahí avanzar derecho hasta detectar el giro
   while(1) {
     seguirLinea();
-    // 
     if (leerSensoresLinea() == BBB) {
-      while(1){
+      while(1) {
         motorIzq(velocidadMaxima, ADELANTE);
         motorDer(velocidadMaxima, ADELANTE);
         valorSensor = leerSensorGiro();
         if (valorSensor) {
           frenar();
           delay(1000);
-
+          
+          valorSensor = leerSensorGiro();
+          while (!valorSensor) {
+            // retrocede un cacho hasta volver a encontrar el giro
+            motorIzq(velocidadMaxima, ATRAS);
+            motorDer(velocidadMaxima, ATRAS);
+            valorSensor = leerSensorGiro();
+          }
+          
           girarIzquierdaFijo();
+          
           tiempo = millis();
-          while(millis()- tiempo < 1000){
+          while(millis() - tiempo < 1000) {
             seguirLinea();
           }
           encontrarCuarto();
