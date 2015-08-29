@@ -40,6 +40,7 @@ const int BBB = 7;
 
 const bool ADELANTE = true;
 const bool ATRAS = false;
+const int velocidadMaxima = 150;
 
 const int SEGUIR_DERECHO = 0;
 const int CORREGIR_HACIA_IZQUIERDA = 1;
@@ -74,8 +75,7 @@ void setup() {
   pinMode(us1Echo, INPUT);
   pinMode(buzzer, OUTPUT);
 
-  // posición inicial
-  empujador.write(180); // vuelve
+  servoDescanso();
 
   if (DEBUG) {
     Serial.begin(9600);  
@@ -101,8 +101,8 @@ void seguirLinea() {
   sensoresPiso = leerSensoresLinea();
   switch (estadoActual) {
     case SEGUIR_DERECHO:
-      motorIzq(255, ADELANTE);
-      motorDer(255, ADELANTE);
+      motorIzq(velocidadMaxima, ADELANTE);
+      motorDer(velocidadMaxima, ADELANTE);
       if (sensoresPiso == NNB || sensoresPiso == NBB) {
         estadoActual = CORREGIR_HACIA_DERECHA;
       }
@@ -111,7 +111,7 @@ void seguirLinea() {
       }
       break;
     case CORREGIR_HACIA_DERECHA:
-      motorIzq(255, ADELANTE);
+      motorIzq(velocidadMaxima, ADELANTE);
       motorDer(0, ADELANTE);
       if (sensoresPiso == NBN) {
         estadoActual = SEGUIR_DERECHO;
@@ -119,7 +119,7 @@ void seguirLinea() {
       break;
     case CORREGIR_HACIA_IZQUIERDA:
       motorIzq(0, ADELANTE);
-      motorDer(255, ADELANTE);
+      motorDer(velocidadMaxima, ADELANTE);
       if (sensoresPiso == NBN) {
         estadoActual = SEGUIR_DERECHO;
       }
@@ -136,26 +136,38 @@ void empujarPelota() {
 
 void girarIzquierda() {
   // gira a la izquierda aprox 90 grados,
-  // hasta volver a encontrar la pista
+  // hasta volver a encontrar la pista por delante
+  
   motorIzq(0, ADELANTE);
-  motorDer(255, ADELANTE);
-  delay(50); //espera un poco para salir de la pista
-  sensoresPiso = leerSensoresLinea();
-  // si leo cualquier sensor de adelante, listo
-  if (sensoresPiso) {
-    motorIzq(0, ADELANTE);
-    motorDer(0, ADELANTE);
+  motorDer(velocidadMaxima, ADELANTE);
+  //espera un poco para que los sensores queden afuera de la pista
+  delay(50);
+  while(1) {
+    sensoresPiso = leerSensoresLinea();
+    // si leo cualquier sensor de adelante, listo
+    if (sensoresPiso) {
+      motorIzq(0, ADELANTE);
+      motorDer(0, ADELANTE);
+      break;
+    }
   }
 }
+
 void darVueltaAtras() {
-  girarIzquierda();
-  girarIzquierda();
+  // esto ocurre en la zona de carga, donde no tenemos referencias
+  // hace el giro de 180 grados en el lugar
+  motorIzq(velocidadMaxima, ADELANTE);
+  motorIzq(velocidadMaxima, ATRAS);
+  delay(1800); // ojímetro
+  motorIzq(0, ADELANTE);
+  motorIzq(0, ADELANTE);
+  delay(200);
 }
 
 void avanzarHastaParedDelantera() {
   // avanza hasta que está adelante de la pared
-  motorIzq(255, ADELANTE);
-  motorDer(255, ADELANTE);
+  motorIzq(velocidadMaxima, ADELANTE);
+  motorDer(velocidadMaxima, ADELANTE);
   while (1) {
     valorSensor = obtenerDistanciaFrontal();
     if (valorSensor < 200) {
@@ -167,15 +179,36 @@ void avanzarHastaParedDelantera() {
 }
 
 void esperarPelotas() {
-  // espera bolas
-  int cantidadPelotasDetectadas = 0;
-  while (cantidadPelotasDetectadas <= 3) {
-    valorSensor = digitalRead(sensorPelotas);
-    if (valorSensor) {
-      cantidadPelotasDetectadas++;
+unsigned int timerPelota;
+  // espera que una pelota quede un tiempo estacionada
+  // en el sensor
+  while(1) {
+    timerPelota = millis();
+    valorSensor = analogRead(sensorPelotas);
+    if (valorSensor > 700) {
+      if ((millis() - timerPelota) >= 2000) {
+        break;
+      }
     }
   }
+  
   // hacer aviso sonoro
+  digitalWrite(buzzer, HIGH);
+  delay(1000);
+  digitalWrite(buzzer, LOW);
+  delay(1000);
+  digitalWrite(buzzer, HIGH);
+  delay(1000);
+  digitalWrite(buzzer, LOW);
+  delay(1000);
+}
+
+void servoDescanso(void) {
+  empujador.write(180);
+}
+
+void servoGolpe(void) {
+  empujador.write(80);
 }
 
 void loop() {
@@ -196,7 +229,7 @@ void loop() {
   }*/
 
   // INICIO FASE UNO
-  // (entrar a la casita)
+  // (recorrer el circuito hasta posicionarse en la zona de carga)
   // seguir linea hasta encontrar una recta a la izquierda
   while (1) {
     seguirLinea();
@@ -204,6 +237,9 @@ void loop() {
     if (valorSensor) {
       girarIzquierda();
       avanzarHastaParedDelantera();
+      while(1) {
+        // esperar intervención humana, o algo así
+      }
       // FIN FASE UNO
       break;
     }
@@ -211,17 +247,33 @@ void loop() {
 
 
   // INICIO FASE DOS
+  // (recibir pelotas, avisar cuando esté listo, y salir de la zona de carga)
     esperarPelotas();
     darVueltaAtras();
-    
-    // seguir linea hasta encontrar una recta a la izquierda
-    // (salir de la casita y seguir por el camino)
-    while (1) {
+    motorIzq(velocidadMaxima, ADELANTE);
+    motorDer(velocidadMaxima, ADELANTE);
+    delay(50); // ojímetro
+    while(1) {
       seguirLinea();
       valorSensor = digitalRead(sensorGiroRecta);
       if (valorSensor) {
         girarIzquierda();
-        // depositar pelotas de a una
+        while(1) {
+          // esperar intervención humana, o algo así
+        }
+        // FIN FASE DOS
+        break;
+      }
+    }
+
+    // INICIO FASE TRES
+    // (seguir por el camino)
+    // seguir linea hasta encontrar una recta a la izquierda
+    while(1) {
+      seguirLinea();
+      valorSensor = digitalRead(sensorGiroRecta);
+      if (valorSensor) {
+        girarIzquierda();
       }
     }
 
