@@ -8,11 +8,11 @@ char debug_string_buffer[50];
   Serial.print(debug_string_buffer); \
   delay(1);
   
-const bool DEBUG = true;
+const bool DEBUG = false;
 
-int faseActual = 4;
+int faseActual = 3;
 const int esperarEnFinDeFase = false;
-const int ejecutarPreparacionFaseTres = false;
+const int ejecutarPreparacionFaseTres = true;
 
 // pines
 const int buzzer = 13; // PWM out
@@ -47,7 +47,8 @@ const bool ATRAS = false;
 const int velocidadMaxima = 150;
 const int velocidadMaximaGiro = 255;
 const int DISTANCIA_FRENADO_FRONTAL = 15;
-const int VALOR_BLANCO = 700;
+const int VALOR_BLANCO = 700; // el negro > 820, el blanco < 450
+const int DISTANCIA_OBSTACULO = 35;
 
 const int SEGUIR_DERECHO = 0;
 const int CORREGIR_HACIA_IZQUIERDA = 1;
@@ -322,11 +323,6 @@ void girarIzquierdaFijo() {
   delay(1000);
 }
 
-
-void buscarAnguloEntrada() {
-  
-}
-
 void darVueltaAtras() {
   // esto ocurre en la zona de carga, donde no tenemos referencias
   // hace el giro de 180 grados en el lugar
@@ -379,6 +375,8 @@ unsigned int timerPelota;
   }
   
   // hacer aviso sonoro
+  emitirRuido();
+  /*
   digitalWrite(led, HIGH);
   delay(1000);
   digitalWrite(led, LOW);
@@ -391,6 +389,7 @@ unsigned int timerPelota;
   delay(1000);
   digitalWrite(led, LOW);
   delay(500);
+  */
 }
 
 void servoDescanso(void) {
@@ -461,10 +460,15 @@ void loop() {
     motorDer(255, ATRAS);
     delay(1000);
   }*/
+  /*
+  while(1) {
+    debug("%.4d ", analogRead(sensorIzq));
+    debug("%.4d ", analogRead(sensorCen));
+    debug("%.4d\n", analogRead(sensorDer));
+  }*/
   
   // countdown pal arranque
-  digitalWrite(led, HIGH); delay(2000);
-  digitalWrite(led, LOW);  delay(2000);
+  emitirRuido();
 
   if (faseActual == 1) {
     // INICIO FASE UNO
@@ -486,14 +490,21 @@ void loop() {
     // (recibir pelotas, avisar cuando esté listo, y salir de la zona de carga)
       esperarPelotas();
       darVueltaAtras();
+      
       motorIzq(velocidadMaxima, ADELANTE);
       motorDer(velocidadMaxima, ADELANTE);
       delay(3000); // ojímetro
+      
       estadoActual = SEGUIR_DERECHO;
       while(1) {
         seguirLinea();
         valorSensor = leerSensorGiro();
         if (valorSensor) {
+          girarIzquierdaFijo();
+          tiempo = millis();
+          while(millis()- tiempo < 1000){
+            seguirLinea();
+          }
           if (esperarEnFinDeFase) {
             while(1) {
               // esperar intervención humana, o algo así
@@ -507,29 +518,18 @@ void loop() {
   }
   if (faseActual == 3 && ejecutarPreparacionFaseTres) {
     // preparacion especial para la fase 3
-    while(1) {
-      seguirLinea();
-      valorSensor = leerSensorGiro();
-      if (valorSensor) {
-        // fin de la preparación de la fase tres
-        break;
-      }
-    }
   }
   if (faseActual == 3) {
     // INICIO FASE TRES
     // (seguir por el camino hasta entrar a primera zona de descarga)
     // seguir linea hasta encontrar una recta a la izquierda
-    while(1) {
-      girarIzquierda();
-      encontrarCuarto();
-    }
+    encontrarCuarto();
     // FIN FASE TRES
     faseActual++;
   }
   
   if (faseActual == 4) {
-    // INICIO FASE TRES
+    // INICIO FASE CUATRO
     // (descargar pelotas en cuartos)
     resolverCuarto();
     avanzarCuarto();
@@ -540,21 +540,17 @@ void loop() {
     resolverCuarto();
     avanzarCuarto();
 
-    
     // FIN FASE CUATRO
     faseActual++;
   }
 
   if (faseActual == 5) {
     while(1) {
-     digitalWrite(led, HIGH); delay(200); 
-     digitalWrite(led, LOW);  delay(200); 
+     emitirRuido();
     }
   }
   
 }
-
-const int DISTANCIA_OBSTACULO = 35;
 
 void resolverCuarto (){
   if (buscarObstaculo() == true){
@@ -598,8 +594,8 @@ void avanzarCuarto() {
         if (valorSensor) {
           frenar();
           delay(1000);
+
           girarIzquierdaFijo();
-          valorSensor = leerSensorGiro();
           tiempo = millis();
           while(millis()- tiempo < 1000){
             seguirLinea();
@@ -613,8 +609,7 @@ void avanzarCuarto() {
   girarIzquierda();
   encontrarCuarto();
   return;
-    
-  
+
 }
 
 bool buscarObstaculo() {
@@ -625,33 +620,44 @@ bool buscarObstaculo() {
     return false;
 }
 
-void emitirRuido(){
-  return;
+void emitirRuido() {
+  analogWrite(buzzer, 200); digitalWrite(led, HIGH); delay(2000);
+  analogWrite(buzzer, 0);   digitalWrite(led, LOW);  delay(200);
+
+  analogWrite(buzzer, 127); digitalWrite(led, HIGH); delay(500);
+  analogWrite(buzzer, 0);   digitalWrite(led, LOW);  delay(200);
+  
+  analogWrite(buzzer, 80);  digitalWrite(led, HIGH); delay(500);
+  analogWrite(buzzer, 0);   digitalWrite(led, LOW);  delay(200);
 }
 
 void depositarPelota(){
   servoGolpe();
   delay(200);
   servoDescanso();
+  delay(200);
 }
 
-void orientarse(){
-  while(!leerSensorGiro()){
+void orientarse() {
+  // giro pseudo controlado de 180 grados
+  
+  while(!leerSensorGiro()) {
     motorIzq(velocidadMaximaGiro, ATRAS);
     motorDer(velocidadMaximaGiro, ADELANTE);
   }
+  
   frenar();
   delay(1000);
  
   sensoresPiso = leerSensoresLinea();
   while(!sensoresPiso) {
     sensoresPiso = leerSensoresLinea();
-    motorIzq(velocidadMaximaGiro, ATRAS);
-    motorDer(velocidadMaximaGiro, ADELANTE);
+    motorIzq(velocidadMaximaGiro * 4 / 5, ATRAS);
+    motorDer(velocidadMaximaGiro * 4 / 5, ADELANTE);
   }
+  
   frenar();
   delay(1000);
+  
 }
-
-
 
